@@ -133,4 +133,4 @@ A full-stack application to download YouTube videos, featuring a FastAPI backend
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License](License).
