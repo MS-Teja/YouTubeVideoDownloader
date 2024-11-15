@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, HttpUrl
-import yt_dlp
 import os
+import yt_dlp # type: ignore
+import uvicorn # type: ignore
+from fastapi import FastAPI, HTTPException # type: ignore
+from fastapi.middleware.cors import CORSMiddleware # type: ignore
+from fastapi.responses import StreamingResponse # type: ignore
+from pydantic import BaseModel, HttpUrl # type: ignore
 from typing import Optional
 from pathlib import Path
 
@@ -24,7 +25,8 @@ DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 class VideoURL(BaseModel):
     url: HttpUrl
-    format: Optional[str] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+    format: Optional[str] = None  # User-selected format_id
+    audio_only: Optional[bool] = False  # New flag to indicate audio-only download
 
 def clean_filename(filename: str) -> str:
     """Remove invalid characters from filename"""
@@ -105,42 +107,45 @@ async def download_video_endpoint(video: VideoURL):
         info = get_video_info(str(video.url))
         title = clean_filename(info['title'])
 
-        selected_format = next(
-            (f for f in info['formats'] if f['format_id'] == video.format), None)
-
-        if not selected_format:
-            raise HTTPException(status_code=400, detail="Invalid format selected")
-
-        if selected_format.get('acodec') == 'none':
-            format_selector = f"{video.format}+bestaudio/best"
-        else:
-            format_selector = video.format
-
-        # Configure yt-dlp options
-        ydl_opts = {
-            'format': format_selector,
-            'outtmpl': str(DOWNLOAD_DIR / f'{title}.%(ext)s'),
-            'quiet': True,
-            'no_warnings': True,
-            'merge_output_format': 'mp4',
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4',
-            }],
-        }
-
-        # Special handling for audio-only downloads
-        if video.format == "251" or video.format == "audio":
-            ydl_opts.update({
-                'format': 'bestaudio/best',
+        if video.audio_only:
+            # For audio-only download
+            ydl_opts = {
+                'format': 'bestaudio/best',  # Download best available audio
+                'outtmpl': str(DOWNLOAD_DIR / f'{title}.%(ext)s'),
+                'quiet': True,
+                'no_warnings': True,
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
+                    'preferredcodec': 'mp3',  # Change to desired format
                     'preferredquality': '192',
                 }],
-            })
+            }
+        else:
+            # Normal video download
+            selected_format = next(
+                (f for f in info['formats'] if f['format_id'] == video.format), None)
 
-        # Download the video
+            if not selected_format:
+                raise HTTPException(status_code=400, detail="Invalid format selected")
+
+            if selected_format.get('acodec') == 'none':
+                format_selector = f"{video.format}+bestaudio/best"
+            else:
+                format_selector = video.format
+
+            ydl_opts = {
+                'format': format_selector,
+                'outtmpl': str(DOWNLOAD_DIR / f'{title}.%(ext)s'),
+                'quiet': True,
+                'no_warnings': True,
+                'merge_output_format': 'mp4',
+                'postprocessors': [{
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': 'mp4',
+                }],
+            }
+
+        # Download the video/audio
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             error_code = ydl.download([str(video.url)])
             if error_code != 0:
@@ -156,9 +161,12 @@ async def download_video_endpoint(video: VideoURL):
             # Clean up after streaming
             os.remove(downloaded_file)
 
-        # Determine content type
+        # Determine content type based on extension
         extension = downloaded_file.suffix.lower()
-        content_type = 'audio/mpeg' if extension == '.mp3' else 'video/mp4'
+        if extension in ['.mp3', '.m4a', '.aac', '.wav', '.ogg']:
+            content_type = f'audio/{extension.lstrip(".")}'
+        else:
+            content_type = 'video/mp4'
 
         return StreamingResponse(
             iterfile(),
@@ -172,5 +180,4 @@ async def download_video_endpoint(video: VideoURL):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

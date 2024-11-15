@@ -4,7 +4,7 @@
       <!-- Header -->
       <div class="p-6 border-b border-gray-200">
         <h1 class="text-2xl font-bold text-center flex items-center justify-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" 
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
@@ -21,14 +21,14 @@
           <div class="relative">
             <div class="flex gap-2">
               <div class="relative flex-1">
-                <svg xmlns="http://www.w3.org/2000/svg" 
+                <svg xmlns="http://www.w3.org/2000/svg"
                      class="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400"
-                     viewBox="0 0 24 24" fill="none" stroke="currentColor" 
+                     viewBox="0 0 24 24" fill="none" stroke="currentColor"
                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
                   <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
                 </svg>
-                <input 
+                <input
                   v-model="url"
                   type="text"
                   placeholder="Paste YouTube URL here..."
@@ -36,7 +36,7 @@
                   :class="{ 'border-red-500': error }"
                 />
               </div>
-              <button 
+              <button
                 type="submit"
                 :disabled="isLoading"
                 class="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px]"
@@ -56,12 +56,18 @@
                 <p class="font-medium">Available Formats:</p>
                 <div class="space-y-1">
                   <button
+                    @click="downloadAudioOnly"
+                    class="block w-full text-left px-3 py-2 text-sm bg-green-100 border rounded hover:bg-green-200"
+                  >
+                    Download Audio Only (MP3)
+                  </button>
+                  <button
                     v-for="format in videoInfo.formats"
                     :key="format.format_id"
                     @click="downloadFormat(format.format_id)"
                     class="block w-full text-left px-3 py-2 text-sm bg-white border rounded hover:bg-gray-50"
                   >
-                    {{ format.format_note }} - {{ format.ext }}
+                    {{ format.format_note || format.resolution }} - {{ format.ext }}
                     <span v-if="format.filesize" class="text-gray-500">
                       ({{ formatFileSize(format.filesize) }})
                     </span>
@@ -106,7 +112,7 @@ const formatDuration = (seconds) => {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
   const remainingSeconds = seconds % 60
-  
+
   if (hours > 0) {
     return `${hours}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`
   }
@@ -122,7 +128,7 @@ const formatFileSize = (bytes) => {
 
 const handleSubmit = async () => {
   error.value = ''
-  
+
   if (!url.value) {
     error.value = 'Please enter a YouTube URL'
     return
@@ -178,6 +184,41 @@ const downloadFormat = async (formatId) => {
     const a = document.createElement('a')
     a.href = downloadUrl
     a.download = `${videoInfo.value.title || 'video'}.mp4`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(downloadUrl)
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const downloadAudioOnly = async () => {
+  error.value = ''
+  try {
+    isLoading.value = true
+    const response = await fetch('http://localhost:8000/api/download', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: url.value,
+        audio_only: true,  // Indicate audio-only download
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error('Download failed')
+    }
+
+    const blob = await response.blob()
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = downloadUrl
+    a.download = `${videoInfo.value.title || 'audio'}.mp3`
     document.body.appendChild(a)
     a.click()
     a.remove()
